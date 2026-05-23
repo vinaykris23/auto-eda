@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Auto-EDA</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Space Grotesk', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px;
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(13,17,23,0.92);
+    backdrop-filter: blur(8px);
+  }
+  .logo { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+  .logo span { color: var(--muted); font-weight: 300; }
+  .badge { font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); }
+
+  /* ── Upload Zone ── */
+  #upload-section {
+    max-width: 820px; margin: 80px auto; padding: 0 24px;
+    display: flex; flex-direction: column; align-items: center; gap: 32px;
+  }
+  .headline {
+    text-align: center;
+  }
+  .headline h1 { font-size: 42px; font-weight: 600; letter-spacing: -1px; line-height: 1.15; }
+  .headline h1 em { font-style: normal; color: var(--accent); }
+  .headline p { color: var(--muted); margin-top: 12px; font-size: 15px; }
+
+  .drop-zone {
+    width: 100%; border: 2px dashed var(--border); border-radius: 12px;
+    padding: 48px 32px; text-align: center; cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: #161b22cc; }
+  .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop-icon { font-size: 40px; margin-bottom: 12px; }
+  .drop-zone h3 { font-family: var(--mono); font-size: 16px; color: var(--text); }
+  .drop-zone p { color: var(--muted); font-size: 13px; margin-top: 6px; font-family: var(--mono); }
+  #file-name { font-family: var(--mono); font-size: 13px; color: var(--green); margin-top: 8px; }
+
+  .form-row { display: flex; gap: 12px; width: 100%; align-items: flex-end; }
+  .form-group { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-family: var(--mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-group input {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 14px; border-radius: 8px; font-family: var(--mono); font-size: 13px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .form-group input:focus { border-color: var(--accent); }
+  .form-group input::placeholder { color: var(--muted); }
+
+  .btn-analyze {
+    background: var(--accent); color: #0d1117; font-family: var(--mono);
+    font-size: 13px; font-weight: 700; padding: 10px 28px;
+    border: none; border-radius: 8px; cursor: pointer;
+    transition: opacity 0.2s; white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+  .btn-analyze:hover { opacity: 0.85; }
+  .btn-analyze:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Loader ── */
+  #loader { display: none; flex-direction: column; align-items: center; gap: 16px; padding: 60px 0; }
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loader p { font-family: var(--mono); color: var(--muted); font-size: 13px; }
+
+  /* ── Dashboard ── */
+  #dashboard { display: none; padding: 24px 32px; max-width: 1600px; margin: 0 auto; }
+
+  .section-title {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
+    padding: 0 0 12px 0; margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::before { content: '▸'; color: var(--accent); }
+
+  /* Overview cards */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat-card .val { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--accent); }
+  .stat-card .lbl { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+
+  /* Preprocess steps */
+  .steps-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .steps-list li {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 14px; color: var(--text);
+    border-left: 3px solid var(--green);
+  }
+  .steps-list li::before { content: '✓ '; color: var(--green); }
+
+  /* Column table */
+  .col-table-wrap { overflow-x: auto; margin-bottom: 32px; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  th { background: var(--surface2); padding: 10px 14px; text-align: left; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-size: 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text); }
+  tr:hover td { background: var(--surface); }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+  .tag-numeric { background: #1f3a5f; color: var(--accent); }
+  .tag-categorical { background: #2d2a1f; color: var(--yellow); }
+  .tag-datetime { background: #1f2d3a; color: #79c0ff; }
+  .tag-boolean { background: #1f3a1f; color: var(--green); }
+  .tag-text { background: #2d1f2d; color: var(--purple); }
+
+  /* Sample table */
+  .sample-wrap { overflow-x: auto; margin-bottom: 32px; border-radius: 8px; border: 1px solid var(--border); }
+  .sample-wrap table th { font-size: 10px; }
+  .sample-wrap table td { font-size: 11px; color: var(--muted); }
+
+  /* Plot grid */
+  .plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(540px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .plot-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .plot-card-title { font-family: var(--mono); font-size: 11px; color: var(--muted); padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .plot-inner { min-height: 360px; }
+
+  .plot-full { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+  .plot-full .plot-inner { min-height: 420px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .tab-btn {
+    font-family: var(--mono); font-size: 12px; padding: 10px 20px;
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Back button */
+  .back-btn {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); padding: 7px 16px; border-radius: 6px;
+    cursor: pointer; margin-bottom: 20px; transition: all 0.15s;
+  }
+  .back-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .miss-badge { font-size: 10px; padding: 1px 7px; border-radius: 20px; }
+  .miss-high { background: #3a1f1f; color: var(--red); }
+  .miss-med { background: #3a2d1f; color: var(--yellow); }
+  .miss-low { background: #1f2d1f; color: var(--green); }
+  .miss-none { background: var(--surface2); color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Auto<span>—</span>EDA</div>
+  <div class="badge">v1.0</div>
+  <div class="badge">ML/DL Preprocessing & Visualization</div>
+</header>
+
+<!-- Upload Section -->
+<div id="upload-section">
+  <div class="headline">
+    <h1>Drop your dataset.<br/><em>We'll handle the rest.</em></h1>
+    <p>Auto-preprocessing · Smart imputation · Full EDA visualizations · Correlation analysis</p>
+  </div>
+
+  <div class="drop-zone" id="drop-zone">
+    <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.json,.parquet,.tsv"/>
+    <div class="drop-icon">📊</div>
+    <h3>Drag & drop your dataset</h3>
+    <p>CSV · Excel · JSON · Parquet · TSV</p>
+    <div id="file-name"></div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>Target Column (optional)</label>
+      <input type="text" id="target-col" placeholder="e.g. price, survived, label …"/>
+    </div>
+    <button class="btn-analyze" id="analyze-btn" onclick="runAnalysis()">Analyze →</button>
+  </div>
+</div>
+
+<!-- Loader -->
+<div id="loader">
+  <div class="spinner"></div>
+  <p>Preprocessing &amp; generating visualizations…</p>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+  <button class="back-btn" onclick="reset()">← New Dataset</button>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
+    <button class="tab-btn" onclick="showTab('columns')">Columns</button>
+    <button class="tab-btn" onclick="showTab('preprocessing')">Preprocessing</button>
+    <button class="tab-btn" onclick="showTab('distributions')">Distributions</button>
+    <button class="tab-btn" onclick="showTab('correlations')">Correlations</button>
+    <button class="tab-btn" onclick="showTab('categoricals')">Categoricals</button>
+    <button class="tab-btn" onclick="showTab('outliers')">Outliers</button>
+    <button class="tab-btn" id="tab-target-btn" onclick="showTab('target')" style="display:none">Target</button>
+    <button class="tab-btn" onclick="showTab('sample')">Sample Data</button>
+  </div>
+
+  <!-- Overview Tab -->
+  <div class="tab-panel active" id="tab-overview">
+    <div class="section-title">Dataset Overview</div>
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <div class="section-title">Missing Values Map</div>
+    <div class="plot-full" id="missing-heatmap-wrap">
+      <div class="plot-inner" id="missing-heatmap"></div>
+    </div>
+  </div>
+
+  <!-- Columns Tab -->
+  <div class="tab-panel" id="tab-columns">
+    <div class="section-title">Column Statistics</div>
+    <div class="col-table-wrap">
+      <table id="col-table">
+        <thead><tr>
+          <th>Column</th><th>Type</th><th>Detected</th><th>Unique</th>
+          <th>Missing</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th><th>Skew</th>
+        </tr></thead>
+        <tbody id="col-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Preprocessing Tab -->
+  <div class="tab-panel" id="tab-preprocessing">
+    <div class="section-title">Auto-Preprocessing Report</div>
+    <div class="stat-grid" id="preprocess-stats"></div>
+    <br/>
+    <div class="section-title">Steps Applied</div>
+    <ul class="steps-list" id="steps-list"></ul>
+    <br/>
+    <div class="section-title">Skewness Overview</div>
+    <div class="plot-full"><div class="plot-inner" id="skewness-plot"></div></div>
+  </div>
+
+  <!-- Distributions Tab -->
+  <div class="tab-panel" id="tab-distributions">
+    <div class="section-title">Numeric Column Distributions</div>
+    <div class="plot-grid" id="dist-grid"></div>
+  </div>
+
+  <!-- Correlations Tab -->
+  <div class="tab-panel" id="tab-correlations">
+    <div class="section-title">Correlation Heatmap</div>
+    <div class="plot-full"><div class="plot-inner" id="corr-heatmap"></div></div>
+    <div class="section-title">Pair Plot (sample)</div>
+    <div class="plot-full"><div class="plot-inner" id="pairplot"></div></div>
+  </div>
+
+  <!-- Categoricals Tab -->
+  <div class="tab-panel" id="tab-categoricals">
+    <div class="section-title">Categorical Value Counts</div>
+    <div class="plot-grid" id="cat-grid"></div>
+  </div>
+
+  <!-- Outliers Tab -->
+  <div class="tab-panel" id="tab-outliers">
+    <div class="section-title">Outlier Detection (Z-normalized Box Plots)</div>
+    <div class="plot-full"><div class="plot-inner" id="outlier-plot"></div></div>
+
+    <div class="section-title">Outlier Counts per Column</div>
+    <div class="col-table-wrap">
+      <table id="outlier-table">
+        <thead><tr><th>Column</th><th>IQR Outliers</th><th>Z-Score Outliers</th><th>IQR Lower</th><th>IQR Upper</th></tr></thead>
+        <tbody id="outlier-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Target Tab -->
+  <div class="tab-panel" id="tab-target">
+    <div class="section-title">Target Analysis</div>
+    <div class="plot-grid" id="target-grid"></div>
+  </div>
+
+  <!-- Sample Tab -->
+  <div class="tab-panel" id="tab-sample">
+    <div class="section-title">First 5 Rows</div>
+    <div class="sample-wrap"><table id="sample-table"></table></div>
+  </div>
+</div>
+
+<script>
+let selectedFile = null;
+
+// ── File handling ───────────────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+function setFile(f) {
+  selectedFile = f;
+  document.getElementById('file-name').textContent = `📄 ${f.name}  (${(f.size/1024).toFixed(1)} KB)`;
+}
+
+// ── Main analysis ───────────────────────────────────────────────────────────
+async function runAnalysis() {
+  if (!selectedFile) { alert('Please select a dataset file first.'); return; }
+
+  document.getElementById('upload-section').style.display = 'none';
+  document.getElementById('loader').style.display = 'flex';
+
+  const form = new FormData();
+  form.append('file', selectedFile);
+  form.append('target_col', document.getElementById('target-col').value);
+
+  try {
+    const res = await fetch('/analyze', { method: 'POST', body: form });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Server error');
+    }
+    const data = await res.json();
+    renderDashboard(data);
+  } catch (err) {
+    document.getElementById('loader').style.display = 'none';
+    document.getElementById('upload-section').style.display = 'flex';
+    alert('Error: ' + err.message);
+  }
+}
+
+function reset() {
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('upload-section').style.display = 'flex';
+  selectedFile = null;
+  document.getElementById('file-name').textContent = '';
+  fileInput.value = '';
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// ── Render ──────────────────────────────────────────────────────────────────
+function renderDashboard(data) {
+  document.getElementById('loader').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  const { preprocess_report, col_stats, visualizations, sample, columns } = data;
+  const viz = visualizations;
+  const overview = viz.overview;
+
+  // ── OVERVIEW STATS ──────────────────────────────────────────────────────
+  const statGrid = document.getElementById('stat-grid');
+  const stats = [
+    { val: overview.rows.toLocaleString(), lbl: 'Rows' },
+    { val: overview.cols, lbl: 'Columns' },
+    { val: overview.numeric_cols, lbl: 'Numeric' },
+    { val: overview.cat_cols, lbl: 'Categorical' },
+    { val: overview.missing_cells.toLocaleString(), lbl: 'Missing Cells' },
+    { val: overview.missing_pct + '%', lbl: 'Missing %' },
+    { val: overview.duplicates, lbl: 'Duplicates' },
+    { val: preprocess_report.final_shape[0] + '×' + preprocess_report.final_shape[1], lbl: 'After Process' },
+  ];
+  statGrid.innerHTML = stats.map(s =>
+    `<div class="stat-card"><div class="val">${s.val}</div><div class="lbl">${s.lbl}</div></div>`
+  ).join('');
+
+  // Missing heatmap
+  if (viz.missing_heatmap) {
+    Plotly.newPlot('missing-heatmap', viz.missing_heatmap.data, viz.missing_heatmap.layout, {responsive: true, displayModeBar: false});
+  } else {
+    document.getElementById('missing-heatmap').innerHTML = '<p style="padding:32px;color:var(--green);font-family:var(--mono);font-size:13px">✓ No missing values detected.</p>';
+  }
+
+  // ── COLUMN TABLE ────────────────────────────────────────────────────────
+  const tbody = document.getElementById('col-tbody');
+  tbody.innerHTML = columns.map(col => {
+    const s = col_stats[col];
+    const mp = s.missing_pct;
+    const missClass = mp === 0 ? 'miss-none' : mp > 30 ? 'miss-high' : mp > 10 ? 'miss-med' : 'miss-low';
+    return `<tr>
+      <td>${col}</td>
+      <td><code>${s.dtype}</code></td>
+      <td><span class="tag tag-${s.detected_type}">${s.detected_type}</span></td>
+      <td>${s.unique}</td>
+      <td><span class="miss-badge ${missClass}">${s.missing} (${mp}%)</span></td>
+      <td>${s.mean ?? '—'}</td>
+      <td>${s.std ?? '—'}</td>
+      <td>${s.min ?? '—'}</td>
+      <td>${s.max ?? '—'}</td>
+      <td style="color:${Math.abs(s.skew||0)>1?'var(--red)':'var(--text)'}">${s.skew ?? '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // ── PREPROCESSING ───────────────────────────────────────────────────────
+  const pr = preprocess_report;
+  document.getElementById('preprocess-stats').innerHTML = [
+    { val: pr.steps.length, lbl: 'Steps Applied' },
+    { val: pr.dropped_columns.length, lbl: 'Columns Dropped' },
+    { val: pr.encoded_columns.length, lbl: 'Encoded' },
+    { val: pr.scaled_columns.length, lbl: 'Scaled' },
+    { val: pr.new_features.length, lbl: 'New Features' },
+  ].map(s => `<div class="stat-card"><div class="val">${s.val}</div><div class="lbl">${s.lbl}</div></div>`).join('');
+
+  document.getElementById('steps-list').innerHTML = pr.steps.length
+    ? pr.steps.map(s => `<li>${s}</li>`).join('')
+    : '<li>Dataset was already clean — no preprocessing steps required.</li>';
+
+  if (viz.skewness) Plotly.newPlot('skewness-plot', viz.skewness.data, viz.skewness.layout, {responsive: true, displayModeBar: false});
+
+  // ── DISTRIBUTIONS ───────────────────────────────────────────────────────
+  const distGrid = document.getElementById('dist-grid');
+  if (viz.distributions.length) {
+    viz.distributions.forEach((d, i) => {
+      const id = `dist-${i}`;
+      distGrid.innerHTML += `<div class="plot-card"><div class="plot-card-title">${d.col}</div><div class="plot-inner" id="${id}"></div></div>`;
+      setTimeout(() => Plotly.newPlot(id, d.fig.data, d.fig.layout, {responsive: true, displayModeBar: false}), 0);
+    });
+  } else {
+    distGrid.innerHTML = '<p style="color:var(--muted);font-family:var(--mono);font-size:13px">No numeric columns found.</p>';
+  }
+
+  // ── CORRELATIONS ────────────────────────────────────────────────────────
+  if (viz.correlation) Plotly.newPlot('corr-heatmap', viz.correlation.data, viz.correlation.layout, {responsive: true, displayModeBar: false});
+  else document.getElementById('corr-heatmap').innerHTML = '<p style="padding:32px;color:var(--muted);font-family:var(--mono)">Need ≥ 2 numeric columns for correlation.</p>';
+
+  if (viz.pairplot) Plotly.newPlot('pairplot', viz.pairplot.data, viz.pairplot.layout, {responsive: true, displayModeBar: false});
+  else document.getElementById('pairplot').innerHTML = '<p style="padding:32px;color:var(--muted);font-family:var(--mono)">Need ≥ 2 numeric columns for pair plot.</p>';
+
+  // ── CATEGORICALS ────────────────────────────────────────────────────────
+  const catGrid = document.getElementById('cat-grid');
+  if (viz.categorical.length) {
+    viz.categorical.forEach((d, i) => {
+      const id = `cat-${i}`;
+      catGrid.innerHTML += `<div class="plot-card"><div class="plot-card-title">${d.col}</div><div class="plot-inner" id="${id}"></div></div>`;
+      setTimeout(() => Plotly.newPlot(id, d.fig.data, d.fig.layout, {responsive: true, displayModeBar: false}), 0);
+    });
+  } else {
+    catGrid.innerHTML = '<p style="color:var(--muted);font-family:var(--mono);font-size:13px">No categorical columns found.</p>';
+  }
+
+  // ── OUTLIERS ────────────────────────────────────────────────────────────
+  if (viz.outliers) Plotly.newPlot('outlier-plot', viz.outliers.data, viz.outliers.layout, {responsive: true, displayModeBar: false});
+  else document.getElementById('outlier-plot').innerHTML = '<p style="padding:32px;color:var(--muted);font-family:var(--mono)">No numeric columns for outlier detection.</p>';
+
+  const outlierTbody = document.getElementById('outlier-tbody');
+  outlierTbody.innerHTML = Object.entries(pr.outlier_info || {}).map(([col, info]) =>
+    `<tr><td>${col}</td><td style="color:${info.iqr_count>0?'var(--red)':'var(--green)'}">${info.iqr_count}</td><td style="color:${info.z_score_count>0?'var(--red)':'var(--green)'}">${info.z_score_count}</td><td>${info.iqr_lower}</td><td>${info.iqr_upper}</td></tr>`
+  ).join('') || '<tr><td colspan="5" style="color:var(--muted)">No numeric columns.</td></tr>';
+
+  // ── TARGET ──────────────────────────────────────────────────────────────
+  if (viz.target && viz.target.length) {
+    document.getElementById('tab-target-btn').style.display = 'block';
+    const tgrid = document.getElementById('target-grid');
+    viz.target.forEach((d, i) => {
+      const id = `tgt-${i}`;
+      tgrid.innerHTML += `<div class="plot-card"><div class="plot-card-title">${d.label} — ${d.col}</div><div class="plot-inner" id="${id}"></div></div>`;
+      setTimeout(() => Plotly.newPlot(id, d.fig.data, d.fig.layout, {responsive: true, displayModeBar: false}), 0);
+    });
+  }
+
+  // ── SAMPLE TABLE ────────────────────────────────────────────────────────
+  const sampleTable = document.getElementById('sample-table');
+  if (sample.length) {
+    const headers = Object.keys(sample[0]);
+    sampleTable.innerHTML = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>` +
+      `<tbody>${sample.map(row => `<tr>${headers.map(h => `<td>${row[h]}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  }
+}
+</script>
+</body>
+</html>
